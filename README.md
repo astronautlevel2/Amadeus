@@ -1,0 +1,2 @@
+# Amadeus
+Discord Musicbot
