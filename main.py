@@ -27,6 +27,7 @@ ydl_format_options = {
 }
 
 ydl = youtube_dl.YoutubeDL(ydl_format_options)
+ies = youtube_dl.extractor.gen_extractors()
 queue = deque()
 skip_votes = set()
 
@@ -41,6 +42,13 @@ bot = commands.Bot( command_prefix=config['prefix'],
                     description='An open source music bot',
                     max_messages=100)
 bot.playing = False
+
+def supported(url):
+    for ie in ies:
+        if ie.suitable(url) and ie.IE_NAME != 'generic':
+            # Site has dedicated extractor
+            return True
+    return False
 
 @bot.event
 async def on_ready():
@@ -91,6 +99,8 @@ async def play_internal(ctx, url):
 async def play(ctx, *, url):
     if not ctx.voice_client:
         return await ctx.send("I'm not in a voice channel!")
+    if not supported(url):
+        return await ctx.send("This is not a valid URL for youtube-dl.")
     queue.appendleft(url)
     await ctx.send(await commands.clean_content().convert(ctx,
                                     "Added {} to the queue!".format(url)))
