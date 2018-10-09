@@ -8,8 +8,11 @@ from collections import deque
 import asyncio
 import discord
 import youtube_dl
+import datetime
 
 from discord.ext import commands
+
+from QueueEntry import QueueEntry
 
 # Options adapted from audio example in the discord.py repo
 ydl_format_options = {
@@ -30,7 +33,8 @@ ydl = youtube_dl.YoutubeDL(ydl_format_options)
 ies = youtube_dl.extractor.gen_extractors()
 queue = deque()
 skip_votes = set()
-
+timer = 0
+video_playing = None
 try:
     with open("config.json") as c:
         config = json.load(c)
@@ -42,6 +46,8 @@ bot = commands.Bot( command_prefix=config['prefix'],
                     description='An open source music bot',
                     max_messages=100)
 bot.playing = False
+
+player_volume = 1
 
 def supported(url):
     for ie in ies:
@@ -82,34 +88,40 @@ async def disconnect(ctx):
     else:
         await ctx.send("I'm not in a voice channel!")
 
-async def play_internal(ctx, url):
+async def play_internal(ctx, video):
     try:
         os.remove("downloaded")
     except FileNotFoundError:
         pass
-    ydl.download([url])
+    ydl.download([video.url])
     source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio("downloaded"))
     await ctx.send(await commands.clean_content().convert(ctx,
-                                    "Now playing: {}".format(url)))
+                                    "Now playing: {}".format(video.name)))
     ctx.voice_client.play(source)
+    ctx.voice_client.source.volume = player_volume
     while ctx.voice_client and ctx.voice_client.is_playing():
         await asyncio.sleep(2)
 
 @bot.command()
 async def play(ctx, *, url):
+    global video_playing
     if not ctx.voice_client:
         return await ctx.send("I'm not in a voice channel!")
     if not supported(url):
-        return await ctx.send("This is not a valid URL for youtube-dl.")
-    queue.appendleft(url)
+        url = f"ytsearch1:{url}"
+    metadata = ydl.extract_info(url, download=False)
+    if '_type' in metadata and metadata['_type'] == "playlist":
+        metadata = metadata['entries'][0]
+    queue.appendleft(QueueEntry(metadata['title'], metadata['webpage_url'], ctx.author.name, metadata['duration']))
     await ctx.send(await commands.clean_content().convert(ctx,
-                                    "Added {} to the queue!".format(url)))
+                                    "Added {} to the queue!".format(metadata['title'])))
     if bot.playing: return
     bot.playing = True
     while queue and bot.playing:
         skip_votes.clear()
-        url = queue.pop()
-        await play_internal(ctx, url)
+        video = queue.pop()
+        video_playing = video
+        await play_internal(ctx, video)
     await ctx.send("Reached end of queue!")
     bot.playing = False
 
@@ -139,17 +151,27 @@ async def skip(ctx):
         await ctx.send("I'm not playing anything!")
 
 @bot.command(aliases=['vol'])
-async def volume(ctx, *, vol):
-    if ctx.voice_client:
-        ctx.voice_client.source.volume = int(vol)/100
-    else:
-        await ctx.send("I'm not in a voice channel!")
+async def volume(ctx, *, vol=None):
+    global player_volume
 
-@bot.command()
+    if not vol:
+        await ctx.send(f"Current volume: {player_volume * 100}")
+        return
+
+    if ctx.voice_client and ctx.voice_client.source:
+        ctx.voice_client.source.volume = int(vol)/100
+
+    player_volume = int(vol)/100
+
+@bot.command(aliases=['queue'])
 async def queued(ctx):
     msg = "Songs currently in queue: ```"
     for s in queue:
-        msg += s + "\n"
+        msg += f"{s.name}; requested by: {s.author}\n"
     await ctx.send(await commands.clean_content().convert(ctx, msg + "```"))
+
+@bot.command(aliases=['np'])
+async def now_playing(ctx):
+    await ctx.send(f"Now playing: `{video_playing.name}`, requested by: {video_playing.author}. Total duration: {datetime.timedelta(seconds=video_playing.duration)}.")
 
 bot.run(config['token'])
