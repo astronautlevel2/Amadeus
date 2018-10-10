@@ -8,7 +8,7 @@ from collections import deque
 import asyncio
 import discord
 import youtube_dl
-import datetime
+import datetime, time
 
 from discord.ext import commands
 
@@ -33,7 +33,7 @@ ydl = youtube_dl.YoutubeDL(ydl_format_options)
 ies = youtube_dl.extractor.gen_extractors()
 queue = deque()
 skip_votes = set()
-timer = 0
+timer = None
 video_playing = None
 try:
     with open("config.json") as c:
@@ -89,6 +89,7 @@ async def disconnect(ctx):
         await ctx.send("I'm not in a voice channel!")
 
 async def play_internal(ctx, video):
+    global timer
     try:
         os.remove("downloaded")
     except FileNotFoundError:
@@ -98,6 +99,7 @@ async def play_internal(ctx, video):
     await ctx.send(await commands.clean_content().convert(ctx,
                                     "Now playing: {}".format(video.name)))
     ctx.voice_client.play(source)
+    timer = time.time()
     ctx.voice_client.source.volume = player_volume
     while ctx.voice_client and ctx.voice_client.is_playing():
         await asyncio.sleep(2)
@@ -105,6 +107,7 @@ async def play_internal(ctx, video):
 @bot.command()
 async def play(ctx, *, url):
     global video_playing
+    global timer
     if not ctx.voice_client:
         return await ctx.send("I'm not in a voice channel!")
     if not supported(url):
@@ -124,6 +127,8 @@ async def play(ctx, *, url):
         await play_internal(ctx, video)
     await ctx.send("Reached end of queue!")
     bot.playing = False
+    video_playing = None
+    timer = None
 
 @bot.command()
 async def stop(ctx):
@@ -172,6 +177,10 @@ async def queued(ctx):
 
 @bot.command(aliases=['np'])
 async def now_playing(ctx):
-    await ctx.send(f"Now playing: `{video_playing.name}`, requested by: {video_playing.author}. Total duration: {datetime.timedelta(seconds=video_playing.duration)}.")
+    timeconv = lambda t: datetime.timedelta(seconds=int(t))
+    if video_playing:
+        await ctx.send(f"Now playing: `{video_playing.name}`, requested by: {video_playing.author}. Duration: `{timeconv(time.time() - timer)}/{timeconv(video_playing.duration)}`.")
+    else:
+        await ctx.send("Nothing is playing!")
 
 bot.run(config['token'])
