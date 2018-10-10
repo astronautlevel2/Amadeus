@@ -94,7 +94,7 @@ async def play_internal(ctx, video):
     except FileNotFoundError:
         pass
     ydl.download([video.url])
-    source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio("downloaded"))
+    source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio("downloaded", options="-b:a 96k -threads 0"))
     await ctx.send(await commands.clean_content().convert(ctx,
                                     "Now playing: {}".format(video.name)))
     ctx.voice_client.play(source)
